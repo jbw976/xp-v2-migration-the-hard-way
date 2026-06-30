@@ -90,7 +90,7 @@ The migration happens in three phases:
 - **Adopt and cut over.** Point the v2 stack at the existing AWS resources, retire v1, and promote
   v2 to full management, with no recreation of the live infrastructure.
 
-### 1. Update your compositions and XRs for v2
+### Update your compositions and XRs for v2
 
 Now update your compositions and XRs to use v2-style namespaced resources, along with the XRD,
 provider, and ProviderConfig that back them. The tables below are the changes you'll make to your own
@@ -156,7 +156,7 @@ the legacy `ProviderConfig`.
 | `v1/providerconfig.yaml` | `aws.upbound.io/v1beta1` | `ProviderConfig` | during v1 setup |
 | `v2/providerconfig.yaml` | `aws.m.upbound.io/v1beta1` | `ClusterProviderConfig` | along with the v2 provider upgrade |
 
-### 2. Test locally with `crossplane render`
+### Test locally with `crossplane render`
 
 `crossplane render` runs the composition pipeline locally without touching a cluster, so you can
 build confidence in your updated compositions and XRs before applying anything. Two ways to use it.
@@ -187,7 +187,7 @@ Everything in the diff should fall into one of these categories. Anything outsid
   - `ownerReferences[0]` apiVersion + kind (follows the XR)
   - generated name hash suffixes and ownerReference UIDs
 
-### 3. Run the pre-upgrade check
+### Run the pre-upgrade check
 
 Download the `v1.20` `crossplane` CLI and run its `upgrade check` to verify the v1 control plane is
 ready to safely upgrade to v2:
@@ -202,7 +202,7 @@ curl -sL "https://raw.githubusercontent.com/crossplane/crossplane/main/install.s
 
 Any flagged issues need to be addressed before moving on to the upgrade.
 
-### 4. Upgrade the Crossplane core to v2
+### Upgrade the Crossplane core to v2
 
 Upgrade the core with `--set provider.defaultActivations={}` to skip the default MRAP that would
 activate every MRD for every provider. We'll apply our own targeted MRAP in the next step instead.
@@ -227,7 +227,7 @@ crossplane resource trace networkingstack.example.crossplane.io/cool-network
 
 Nothing should have changed: the pods reach `Running` and the trace is still all `Ready`/`Synced`.
 
-### 5. Activate the namespaced managed resources
+### Activate the namespaced managed resources
 
 In v2, a managed resource kind must be activated by a `ManagedResourceActivationPolicy` (MRAP) before
 the provider installs its CRD. Apply our targeted MRAP, which activates just the three namespaced EC2
@@ -247,7 +247,7 @@ kubectl get mrap
 We don't need to activate the v1 cluster-scoped kinds here. MRD activation is one-way, and they were
 already considered "active" at v2 upgrade time.
 
-### 6. Upgrade the provider
+### Upgrade the provider
 
 Upgrade the provider to a v2 version so the namespaced MRs get installed:
 
@@ -281,27 +281,18 @@ Confirm the v2 namespaced MRs are now available:
 kubectl get crd | grep ec2.aws.m.upbound.io
 ```
 
-### 7. Adopt the existing AWS resources
+### Capture the original external-names
 
-This is the heart of the migration. Applying the v2 XRD/composition/XR as-is would make the provider
-create a *second* set of AWS resources, since it doesn't know the v1 ones exist. Instead we point
-each v2 MR at its existing cloud resource via the `crossplane.io/external-name` annotation before the
-provider can create anything.
+From here we adopt the existing AWS resources, then cut over to v2. Applying the v2
+XRD/composition/XR as-is would make the provider create a *second* set of resources, since it doesn't
+know the v1 ones exist; instead we point each v2 MR at its existing cloud resource via its
+`crossplane.io/external-name` before the provider can create anything. We do it by hand, matching v1
+to v2 MRs by the `crossplane.io/composition-resource-name` annotation, which is consistent across
+both compositions.
 
-This is "the hard way", so we do it by hand:
-
-1. **Capture** each v1 MR's external-name (the AWS resource ids) so we can reuse them.
-2. **Orphan** the v1 MRs, so retiring v1 later won't delete the cloud resources.
-3. **Bring up the v2 stack in `Observe`-only mode**, so it adopts read-only and can't create duplicates.
-4. **Attach** each captured external-name to the matching v2 MR: the adoption link.
-5. **Retire v1 and promote v2** to full management.
-
-We match v1 to v2 MRs by the `crossplane.io/composition-resource-name` annotation because these will be consistent in both the v1 and v2 composition.
-
-#### Capture the original external-names
-
-Each v1 MR's `crossplane.io/external-name` holds the id of the AWS resource it manages. Copy them
-into variables so we can apply them to the v2 resources later:
+Start by capturing each v1 MR's `crossplane.io/external-name` (the id of the AWS resource it manages)
+into a variable, so the later steps can apply them to the v2 resources. Keep this shell open through
+the adoption steps that follow; they reuse these variables:
 
 ```bash
 VPC=$(kubectl get managed -l crossplane.io/claim-name=cool-network \
@@ -328,7 +319,7 @@ printf '%s\n' "vpc $VPC" "subnetAZA $SUBNET_AZA" "subnetAZB $SUBNET_AZB" "subnet
   | sort | tee /tmp/original-external-names.txt
 ```
 
-#### Orphan the v1 MRs
+### Set `deletionPolicy: Orphan` on the v1 MRs
 
 Set `deletionPolicy: Orphan` on every v1 MR. This is what lets us delete the v1 claim later without
 the provider deleting the underlying resources. We patch the live MRs directly; the v1 composition never sets
@@ -345,7 +336,7 @@ kubectl get managed -l crossplane.io/claim-name=cool-network \
 
 Confirm every row shows `Orphan` before continuing.
 
-#### Bring up the v2 stack in Observe-only mode
+### Bring up the v2 stack in Observe-only mode
 
 `v2/composition.yaml` gates Observe mode on an annotation: when the XR carries
 `example.crossplane.io/adopt: "true"`, every composed MR is rendered with
@@ -368,7 +359,7 @@ confirm on any one with `kubectl get <mr> -n default -o jsonpath='{.spec.managem
 Because Observe is read-only, the provider can't create anything, so there's no duplicate
 VPC/subnets/SG while we wire up the external-names.
 
-#### Attach the external-names (the adoption link)
+### Adopt the existing resources (attach the external-names)
 
 Now give each v2 MR the external-name of its existing AWS resource, and the provider adopts that
 resource instead of creating a new one. We use `kubectl annotate` (out of band) on purpose: the
@@ -415,7 +406,7 @@ kubectl get managed -n default -l crossplane.io/composite=cool-network
 Each MR's `EXTERNAL-NAME` should now be the ID you set, with `SYNCED` and `READY` both `True`.
 `SYNCED=True` means the provider found and bound to the existing resource.
 
-#### Retire v1 and promote v2
+### Retire v1 and promote v2
 
 Delete the v1 claim. It cascades to the v1 XR and its five MRs, but because they're orphaned the AWS
 resources survive and only the Kubernetes objects go away.
@@ -447,7 +438,7 @@ The trace should show the v2 XR and all five MRs `Synced`/`Ready`, with the same
 v1 MRs. The live AWS resources are now fully managed by the namespaced v2 composition, with no
 recreation along the way.
 
-#### Confirm the end state
+### Confirm the end state
 
 Only the namespaced v2 MRs should be left. The `NAME` column shows each MR's full kind and group, so
 every row should read `...ec2.aws.m.upbound.io/...` (no legacy `ec2.aws.upbound.io` rows), all
@@ -468,7 +459,7 @@ kubectl get managed -n default -l crossplane.io/composite=cool-network \
 
 No output (just `exact match`) means every role still maps to its original id.
 
-#### Clean up the v1 definitions (optional)
+### Clean up the v1 definitions (optional)
 
 Once you're confident in the v2 stack, remove the now-unused v1 XRD, composition, and ProviderConfig.
 The provider package stays (the v2 release serves both the legacy and namespaced MR kinds).
