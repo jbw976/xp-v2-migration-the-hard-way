@@ -1,22 +1,22 @@
 # Crossplane v2 Migration The Hard Way
 
-This guide stands up a Crossplane v1 control plane managing real AWS resources, then migrates it to
+This guide deploys a Crossplane v1 control plane managing real AWS resources, then migrates it to
 Crossplane v2 "[The Hard Way](https://github.com/kelseyhightower/kubernetes-the-hard-way)", with
 limited automation and tooling. The goal is to understand the actual steps and mechanics of a full
 v2 migration, so you can run one yourself and know exactly what each step does and why.
 
-A Crossplane control plane can be upgraded to v2 with *no manifest changes at all*: legacy claims,
-XRs, and managed resources keep working untouched. This guide deliberately goes further. It migrates
-the user-facing API from claims to namespaced XRs, and the composed managed resources (MRs) from
-cluster-scoped to namespaced, doing it as an in-place adoption that never recreates the live AWS
-resources. That cutover is where all the effort goes, and it's most of what you'll do here.
+Note that a Crossplane control plane can be upgraded to v2 with *no manifest changes at all*: legacy
+claims, XRs, and managed resources keep working untouched. This guide deliberately goes further. It
+migrates the user-facing API from claims to namespaced XRs, and the composed managed resources (MRs)
+from cluster-scoped to namespaced, doing it as an in-place adoption that reuses the existing live
+AWS resources. That migration is where all the effort goes, and it's most of what you'll do here.
 
-The guide has two parts: first you stand up a working v1 control plane, then you migrate it to v2.
+The guide has two main parts: first you deploy a working v1 control plane, then you migrate it to v2.
 
 ## Set up the v1 control plane
 
-You'll build a small but realistic example: an XRD and Composition that provision a VPC, three subnets
-(one per availability zone), and a security group, driven by a single claim.
+You'll build a small but realistic example that composes a VPC, three subnets (one per availability
+zone), and a security group.
 
 Create a v1 control plane:
 
@@ -24,7 +24,7 @@ Create a v1 control plane:
 kind create cluster
 ```
 
-Install Crossplane `v1.20`:
+Install Crossplane `v1.20` (the last v1 Crossplane release):
 
 ```bash
 helm repo add crossplane-stable https://charts.crossplane.io/stable
@@ -80,9 +80,9 @@ minute or two. Once it's all green, you have a working v1 control plane to migra
 
 ## Update Compositions and validate locally
 
-The migration begins here. Update your compositions and XRs to v2 namespaced resources, render-test
-them, and run the pre-upgrade check. Nothing touches your running control plane yet, so this is all
-safe to explore.
+The migration begins here. Update your compositions and XRs to v2 namespaced resources, test them
+with `render`, and run the pre-upgrade check. Nothing modifies your running control plane yet, so
+this is all safe to explore.
 
 ### Update your compositions and XRs for v2
 
@@ -123,7 +123,7 @@ adoption, which the provider rejects. Leaving `name` unset lets the provider kee
 
 #### Claim becomes a namespaced XR (`v1/claim.yaml` -> `v2/xr.yaml`)
 
-With a namespaced XR there is no Claim; the namespaced XR is the user-facing API now. We keep the
+With a namespaced XR there is no Claim - the XR is the user-facing API now. We keep the
 same kind name (`NetworkingStack`) and changed the group instead.
 
 | Field | v1 (`claim.yaml`) | v2 (`xr.yaml`) |
@@ -198,13 +198,14 @@ Any flagged issues need to be addressed before moving on to the upgrade.
 
 ## Upgrade the platform
 
-Upgrade the Crossplane core, activate the namespaced MR kinds, then upgrade the provider. The v1 XR
+Upgrade Crossplane core, activate the namespaced MR kinds, then upgrade the provider. The v1 XR
 keeps reconciling untouched the whole time.
 
-### Upgrade the Crossplane core to v2
+### Upgrade Crossplane core to v2
 
-Upgrade the core with `--set provider.defaultActivations={}` to skip the default MRAP that would
-activate every MRD for every provider. We'll apply our own targeted MRAP in the next step instead.
+Upgrade core Crossplane to v2 with `--set provider.defaultActivations={}` to skip the default MRAP
+that would activate every MRD for every provider. We'll apply our own targeted MRAP in the next step
+instead.
 
 ```bash
 helm upgrade crossplane crossplane-stable/crossplane \
@@ -283,11 +284,13 @@ kubectl get crd | grep ec2.aws.m.upbound.io
 ## Adopt and cut over to v2 composition
 
 Point the v2 managed resources at the existing AWS resources, retire v1, and promote v2 to full
-management, with no recreation of the live infrastructure. Applying the v2 XRD/composition/XR as-is
-would make the provider create a *second* set of resources, since it doesn't know the v1 ones exist;
-instead we point each v2 MR at its existing cloud resource via its `crossplane.io/external-name`
-before it can create anything. We do it by hand, matching v1 to v2 MRs by the
-`crossplane.io/composition-resource-name` annotation, which is consistent across both compositions.
+management, with no recreation of the live infrastructure.
+
+Applying the v2 XRD/composition/XR without adopting the existing resources would cause new resources
+to be created, so instead we point each v2 MR at its existing cloud resource via its
+`crossplane.io/external-name` before it can create anything. We do it by hand, matching v1 to v2 MRs
+by the `crossplane.io/composition-resource-name` annotation, which is consistent across both
+compositions.
 
 ### Capture the original external-names
 
@@ -312,8 +315,9 @@ SG=$(kubectl get managed -l crossplane.io/claim-name=cool-network \
   -o jsonpath="{.items[?(@.metadata.annotations.crossplane\.io/composition-resource-name=='securityGroup')].metadata.annotations.crossplane\.io/external-name}")
 ```
 
-Sanity-check they're populated, and save the mapping for later in one go. Each line is `<role> <id>`;
-a capture that missed shows up as a role with no id after it. We also save this list to a temp file for verifying the final migration state later.
+Sanity-check they're populated, and save the mapping for later in one go. Each line should show
+`<role> <id>`, so if any resource was missed it shows up as a role with no id after it. We also save
+this list to a temp file for verifying the final migration state later.
 
 ```bash
 printf '%s\n' "vpc $VPC" "subnetAZA $SUBNET_AZA" "subnetAZB $SUBNET_AZB" "subnetAZC $SUBNET_AZC" "securityGroup $SG" \
@@ -330,7 +334,9 @@ the provider deleting the underlying resources. We patch the live MRs directly; 
 for mr in $(kubectl get managed -l crossplane.io/claim-name=cool-network -o name); do
   kubectl patch "$mr" --type merge -p '{"spec":{"deletionPolicy":"Orphan"}}'
 done
+```
 
+```bash
 kubectl get managed -l crossplane.io/claim-name=cool-network \
   -o custom-columns='NAME:.metadata.name,DELETION:.spec.deletionPolicy'
 ```
@@ -354,15 +360,18 @@ kubectl apply -f v2/xr-adopt.yaml
 kubectl get managed -n default -l crossplane.io/composite=cool-network
 ```
 
-You'll see five MRs, each with an empty `EXTERNAL-NAME` and not Ready yet (nothing to observe until
-we point them at the live resources). The adopt annotation made the composition render them `Observe`-only;
-confirm on any one with `kubectl get <mr> -n default -o jsonpath='{.spec.managementPolicies}'`.
+You'll see five MRs, each with an empty `EXTERNAL-NAME` and not Synced/Ready yet (nothing to observe until
+we point them at the live resources).
+
+The adopt annotation made the composition render them `Observe` only, which can be
+confirmed on any one with `kubectl get <mr> -n default -o jsonpath='{.spec.managementPolicies}'`.
+
 Because Observe is read-only, the provider can't create anything, so there's no duplicate
 VPC/subnets/SG while we wire up the external-names.
 
 ### Adopt the existing resources (attach the external-names)
 
-Now give each v2 MR the external-name of its existing AWS resource, and the provider adopts that
+Now give each v2 MR the external-name of its existing AWS resource to let the provider adopt that
 resource instead of creating a new one. We use `kubectl annotate` (out of band) on purpose: the
 annotation is then owned by the `kubectl` field manager, not the composition, so promoting to full
 management later won't strip it.
@@ -401,7 +410,7 @@ kubectl annotate securitygroup.ec2.aws.m.upbound.io -n default \
 Then confirm the adoption, look at all the MRs belonging to our v2 XR:
 
 ```bash
-kubectl get managed -n default -l crossplane.io/composite=cool-network
+kubectl get managed -A -l crossplane.io/composite=cool-network
 ```
 
 Each MR's `EXTERNAL-NAME` should now be the ID you set, with `SYNCED` and `READY` both `True`.
@@ -414,7 +423,9 @@ resources survive and only the Kubernetes objects go away.
 
 ```bash
 kubectl delete -f v1/claim.yaml
+```
 
+```bash
 kubectl get managed -l crossplane.io/claim-name=cool-network
 ```
 
@@ -430,6 +441,10 @@ Without the annotation the composition re-renders the MRs without `managementPol
 them to the default `["*"]` (full management), and the external-names we set out of band persist.
 The composition's `forProvider` should already match the live resources, so nothing should be
 recreated or modified. The v2 MRs simply take over management of the existing infrastructure.
+
+```bash
+kubectl get managed -A -l crossplane.io/composite=cool-network
+```
 
 ```bash
 crossplane resource trace networkingstack.example.m.crossplane.io/cool-network -n default
@@ -473,22 +488,20 @@ kubectl delete -f v1/providerconfig.yaml
 
 ## Tear down
 
-When you're done, remove everything so you don't leave AWS resources running. Order matters: delete
-the Crossplane resources first so the provider deletes the cloud resources, *then* delete the
-cluster. Deleting the cluster first would orphan the live VPC, subnets, and security group in AWS.
-
-Delete the v2 XR. It cascades to the five v2 MRs, which are fully managed (deletionPolicy defaults to
-`Delete`), so the provider deletes the real AWS resources too. The command blocks on the XR's
-finalizer until that finishes, so give it a few minutes; the VPC goes last, once its subnets and SG
-are gone.
+When you're done, remove everything so you don't leave AWS resources running.
 
 ```bash
 kubectl delete -f v2/xr.yaml
 ```
 
-Confirm nothing is left, then delete the cluster:
+Confirm nothing is left:
 
 ```bash
 kubectl get managed -A
+```
+
+Then delete the cluster:
+
+```bash
 kind delete cluster
 ```
