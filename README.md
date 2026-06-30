@@ -15,7 +15,7 @@ The guide has two parts: first you stand up a working v1 control plane, then you
 
 ## Set up the v1 control plane
 
-You'll build a small but realistic stack: an XRD and Composition that provision a VPC, three subnets
+You'll build a small but realistic example: an XRD and Composition that provision a VPC, three subnets
 (one per availability zone), and a security group, driven by a single claim.
 
 Create a v1 control plane:
@@ -65,7 +65,7 @@ kubectl apply -f v1/xrd.yaml
 kubectl apply -f v1/composition.yaml
 ```
 
-Apply the claim, then trace the stack it composes:
+Apply the claim, then trace the resources it composes:
 
 ```bash
 kubectl apply -f v1/claim.yaml
@@ -86,8 +86,8 @@ The migration happens in three phases:
   render-test them, and run the upgrade check. Nothing touches your running control plane yet, so
   this is all safe to explore.
 - **Upgrade the platform.** Upgrade the Crossplane core, activate the namespaced MR kinds, then
-  upgrade the provider. The v1 stack keeps reconciling untouched the whole time.
-- **Adopt and cut over.** Point the v2 stack at the existing AWS resources, retire v1, and promote
+  upgrade the provider. The v1 XR keeps reconciling untouched the whole time.
+- **Adopt and cut over.** Point the v2 managed resources at the existing AWS resources, retire v1, and promote
   v2 to full management, with no recreation of the live infrastructure.
 
 ### Update your compositions and XRs for v2
@@ -267,13 +267,13 @@ Once the provider reports healthy, apply the `ClusterProviderConfig` the namespa
 kubectl apply -f v2/providerconfig.yaml
 ```
 
-Sanity-check that the v1 stack is still reconciling under the new v2 provider:
+Sanity-check that the v1 XR is still reconciling under the new v2 provider:
 
 ```bash
 crossplane resource trace networkingstack.example.crossplane.io/cool-network
 ```
 
-Still all `Ready`/`Synced`: the v1 stack rides through the provider swap untouched.
+Still all `Ready`/`Synced`: the v1 XR rides through the provider swap untouched.
 
 Confirm the v2 namespaced MRs are now available:
 
@@ -336,7 +336,7 @@ kubectl get managed -l crossplane.io/claim-name=cool-network \
 
 Confirm every row shows `Orphan` before continuing.
 
-### Bring up the v2 stack in Observe-only mode
+### Bring up the v2 XR in Observe-only mode
 
 `v2/composition.yaml` gates Observe mode on an annotation: when the XR carries
 `example.crossplane.io/adopt: "true"`, every composed MR is rendered with
@@ -363,8 +363,8 @@ VPC/subnets/SG while we wire up the external-names.
 
 Now give each v2 MR the external-name of its existing AWS resource, and the provider adopts that
 resource instead of creating a new one. We use `kubectl annotate` (out of band) on purpose: the
-annotation is then owned by the `kubectl` field manager, not the composition, so promoting the stack
-later won't strip it.
+annotation is then owned by the `kubectl` field manager, not the composition, so promoting to full
+management later won't strip it.
 
 We do it one resource at a time, matching each MR by its `crossplane.io/composition-resource-name`
 annotation (the same role key we captured by) and handing it the matching `$VPC` / `$SUBNET_AZ*` /
@@ -418,7 +418,7 @@ kubectl get managed -l crossplane.io/claim-name=cool-network
 ```
 
 The legacy MRs should now be gone, while the v2 MRs keep observing the (still present) cloud
-resources. Promote the v2 stack to full management by applying the plain XR (`v2/xr.yaml`, which is
+resources. Promote the v2 XR to full management by applying the plain XR (`v2/xr.yaml`, which is
 `v2/xr-adopt.yaml` minus the adopt annotation):
 
 ```bash
@@ -461,7 +461,7 @@ No output (just `exact match`) means every role still maps to its original id.
 
 ### Clean up the v1 definitions (optional)
 
-Once you're confident in the v2 stack, remove the now-unused v1 XRD, composition, and ProviderConfig.
+Once you're confident in the v2 XR, remove the now-unused v1 XRD, composition, and ProviderConfig.
 The provider package stays (the v2 release serves both the legacy and namespaced MR kinds).
 
 ```bash
