@@ -1,0 +1,9 @@
+apiVersion: apiextensions.crossplane.io/v1alpha1
+kind: ManagedResourceActivationPolicy
+metadata:
+  name: networkingstack
+spec:
+  activate:
+  - vpcs.ec2.aws.m.upbound.io
+  - subnets.ec2.aws.m.upbound.io
+  - securitygroups.ec2.aws.m.upbound.io

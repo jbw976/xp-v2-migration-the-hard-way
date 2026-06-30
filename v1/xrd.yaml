@@ -1,0 +1,41 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xnetworkingstacks.example.crossplane.io
+spec:
+  group: example.crossplane.io
+  names:
+    kind: XNetworkingStack
+    plural: xnetworkingstacks
+  claimNames:
+    kind: NetworkingStack
+    plural: networkingstacks
+  versions:
+  - name: v1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              region:
+                type: string
+          status:
+            type: object
+            properties:
+              networkingInfo:
+                type: object
+                properties:
+                  vpcID:
+                    type: string
+                  subnetAZA:
+                    type: string
+                  subnetAZB:
+                    type: string
+                  subnetAZC:
+                    type: string
+                  securityGroup:
+                    type: string

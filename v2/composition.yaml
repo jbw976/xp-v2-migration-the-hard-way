@@ -1,0 +1,141 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: networkingstack-v2
+spec:
+  compositeTypeRef:
+    apiVersion: example.m.crossplane.io/v1
+    kind: NetworkingStack
+  mode: Pipeline
+  pipeline:
+  - step: render-templates
+    functionRef:
+      name: function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{ $xr := .observed.composite.resource }}
+          {{ $region := $xr.spec.region }}
+          {{ $vpcId := dig "resources" "vpc" "resource" "status" "atProvider" "id" "" $.observed }}
+          {{/* Migration-only toggle: when the XR carries the example.crossplane.io/adopt=true
+               annotation, every composed MR starts read-only (managementPolicies: ["Observe"])
+               so it adopts the existing cloud resource instead of creating a new one. Remove the
+               annotation to promote the stack to full management. */}}
+          {{ $adopt := eq (dig "metadata" "annotations" "example.crossplane.io/adopt" "" $xr) "true" }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: VPC
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: vpc
+          spec:
+            forProvider:
+              region: {{ $region }}
+              cidrBlock: 192.168.0.0/16
+              enableDnsHostnames: false
+              enableDnsSupport: true
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            {{- if $adopt }}
+            managementPolicies: ["Observe"]
+            {{- end }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: Subnet
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: subnetAZA
+          spec:
+            forProvider:
+              region: {{ $region }}
+              availabilityZone: {{ print $region "a" }}
+              cidrBlock: 192.168.0.0/18
+              {{- if $vpcId }}
+              vpcId: {{ $vpcId }}
+              {{- end }}
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            {{- if $adopt }}
+            managementPolicies: ["Observe"]
+            {{- end }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: Subnet
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: subnetAZB
+          spec:
+            forProvider:
+              region: {{ $region }}
+              availabilityZone: {{ print $region "b" }}
+              cidrBlock: 192.168.64.0/18
+              {{- if $vpcId }}
+              vpcId: {{ $vpcId }}
+              {{- end }}
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            {{- if $adopt }}
+            managementPolicies: ["Observe"]
+            {{- end }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: Subnet
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: subnetAZC
+          spec:
+            forProvider:
+              region: {{ $region }}
+              availabilityZone: {{ print $region "c" }}
+              cidrBlock: 192.168.128.0/18
+              {{- if $vpcId }}
+              vpcId: {{ $vpcId }}
+              {{- end }}
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            {{- if $adopt }}
+            managementPolicies: ["Observe"]
+            {{- end }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: SecurityGroup
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: securityGroup
+          spec:
+            forProvider:
+              # No name on purpose: a security group's name is immutable, and v1 derived it from the
+              # XR name - which for a claim carries a generated suffix (cool-network-427vt) the v2 XR
+              # (cool-network) lacks, so setting it would force a replace on adopt. Leaving it unset
+              # lets the provider keep the existing name via late-init.
+              region: {{ $region }}
+              description: something something
+              {{- if $vpcId }}
+              vpcId: {{ $vpcId }}
+              {{- end }}
+            providerConfigRef:
+              kind: ClusterProviderConfig
+              name: default
+            {{- if $adopt }}
+            managementPolicies: ["Observe"]
+            {{- end }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          status:
+            networkingInfo:
+              vpcID: "{{ $vpcId }}"
+              subnetAZA: "{{ dig "resources" "subnetAZA" "resource" "status" "atProvider" "id" "" $.observed }}"
+              subnetAZB: "{{ dig "resources" "subnetAZB" "resource" "status" "atProvider" "id" "" $.observed }}"
+              subnetAZC: "{{ dig "resources" "subnetAZC" "resource" "status" "atProvider" "id" "" $.observed }}"
+              securityGroup: "{{ dig "resources" "securityGroup" "resource" "status" "atProvider" "id" "" $.observed }}"
+  - step: auto-ready
+    functionRef:
+      name: function-auto-ready
