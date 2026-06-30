@@ -1,8 +1,7 @@
 # Same as v2/xr.yaml, plus the example.crossplane.io/adopt annotation. That annotation makes the
 # composition render every composed MR in managementPolicies: ["Observe"] (read-only), so the v2
-# stack adopts the existing AWS resources instead of creating new ones. Used only during the
-# migration (README step 7); promote to full management by removing the annotation once adoption
-# is confirmed.
+# managed resources adopt the existing AWS resources instead of creating new ones. Used only while
+# adopting them; promote to full management by removing the annotation once adoption is confirmed.
 apiVersion: example.m.crossplane.io/v1
 kind: NetworkingStack
 metadata:

@@ -78,17 +78,11 @@ crossplane resource trace networkingstack.example.crossplane.io/cool-network
 Wait for every resource in the trace to reach `READY` and `SYNCED` `True`. AWS provisioning takes a
 minute or two. Once it's all green, you have a working v1 control plane to migrate.
 
-## Migrate to v2
+## Update Compositions and validate locally
 
-The migration happens in three phases:
-
-- **Prepare and validate locally.** Update your compositions and XRs to v2 namespaced resources,
-  render-test them, and run the upgrade check. Nothing touches your running control plane yet, so
-  this is all safe to explore.
-- **Upgrade the platform.** Upgrade the Crossplane core, activate the namespaced MR kinds, then
-  upgrade the provider. The v1 XR keeps reconciling untouched the whole time.
-- **Adopt and cut over.** Point the v2 managed resources at the existing AWS resources, retire v1, and promote
-  v2 to full management, with no recreation of the live infrastructure.
+The migration begins here. Update your compositions and XRs to v2 namespaced resources, render-test
+them, and run the pre-upgrade check. Nothing touches your running control plane yet, so this is all
+safe to explore.
 
 ### Update your compositions and XRs for v2
 
@@ -202,6 +196,11 @@ curl -sL "https://raw.githubusercontent.com/crossplane/crossplane/main/install.s
 
 Any flagged issues need to be addressed before moving on to the upgrade.
 
+## Upgrade the platform
+
+Upgrade the Crossplane core, activate the namespaced MR kinds, then upgrade the provider. The v1 XR
+keeps reconciling untouched the whole time.
+
 ### Upgrade the Crossplane core to v2
 
 Upgrade the core with `--set provider.defaultActivations={}` to skip the default MRAP that would
@@ -281,17 +280,19 @@ Confirm the v2 namespaced MRs are now available:
 kubectl get crd | grep ec2.aws.m.upbound.io
 ```
 
+## Adopt and cut over to v2 composition
+
+Point the v2 managed resources at the existing AWS resources, retire v1, and promote v2 to full
+management, with no recreation of the live infrastructure. Applying the v2 XRD/composition/XR as-is
+would make the provider create a *second* set of resources, since it doesn't know the v1 ones exist;
+instead we point each v2 MR at its existing cloud resource via its `crossplane.io/external-name`
+before it can create anything. We do it by hand, matching v1 to v2 MRs by the
+`crossplane.io/composition-resource-name` annotation, which is consistent across both compositions.
+
 ### Capture the original external-names
 
-From here we adopt the existing AWS resources, then cut over to v2. Applying the v2
-XRD/composition/XR as-is would make the provider create a *second* set of resources, since it doesn't
-know the v1 ones exist; instead we point each v2 MR at its existing cloud resource via its
-`crossplane.io/external-name` before the provider can create anything. We do it by hand, matching v1
-to v2 MRs by the `crossplane.io/composition-resource-name` annotation, which is consistent across
-both compositions.
-
-Start by capturing each v1 MR's `crossplane.io/external-name` (the id of the AWS resource it manages)
-into a variable, so the later steps can apply them to the v2 resources. Keep this shell open through
+Each v1 MR's `crossplane.io/external-name` holds the id of the AWS resource it manages. Capture them
+into variables so the later steps can apply them to the v2 resources. Keep this shell open through
 the adoption steps that follow; they reuse these variables:
 
 ```bash

@@ -23,7 +23,7 @@ spec:
           {{/* Migration-only toggle: when the XR carries the example.crossplane.io/adopt=true
                annotation, every composed MR starts read-only (managementPolicies: ["Observe"])
                so it adopts the existing cloud resource instead of creating a new one. Remove the
-               annotation to promote the stack to full management. */}}
+               annotation to promote the v2 XR to full management. */}}
           {{ $adopt := eq (dig "metadata" "annotations" "example.crossplane.io/adopt" "" $xr) "true" }}
           ---
           apiVersion: ec2.aws.m.upbound.io/v1beta1
