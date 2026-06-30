@@ -19,7 +19,6 @@ spec:
         template: |
           {{ $xr := .observed.composite.resource }}
           {{ $region := $xr.spec.region }}
-          {{ $vpcId := dig "resources" "vpc" "resource" "status" "atProvider" "id" "" $.observed }}
           {{/* Migration-only toggle: when the XR carries the example.crossplane.io/adopt=true
                annotation, every composed MR starts read-only (managementPolicies: ["Observe"])
                so it adopts the existing cloud resource instead of creating a new one. Remove the
@@ -54,9 +53,8 @@ spec:
               region: {{ $region }}
               availabilityZone: {{ print $region "a" }}
               cidrBlock: 192.168.0.0/18
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
             providerConfigRef:
               kind: ClusterProviderConfig
               name: default
@@ -74,9 +72,8 @@ spec:
               region: {{ $region }}
               availabilityZone: {{ print $region "b" }}
               cidrBlock: 192.168.64.0/18
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
             providerConfigRef:
               kind: ClusterProviderConfig
               name: default
@@ -94,9 +91,8 @@ spec:
               region: {{ $region }}
               availabilityZone: {{ print $region "c" }}
               cidrBlock: 192.168.128.0/18
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
             providerConfigRef:
               kind: ClusterProviderConfig
               name: default
@@ -117,9 +113,8 @@ spec:
               # lets the provider keep the existing name via late-init.
               region: {{ $region }}
               description: something something
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
             providerConfigRef:
               kind: ClusterProviderConfig
               name: default
@@ -131,7 +126,7 @@ spec:
           kind: {{ $xr.kind }}
           status:
             networkingInfo:
-              vpcID: "{{ $vpcId }}"
+              vpcID: "{{ dig "resources" "vpc" "resource" "status" "atProvider" "id" "" $.observed }}"
               subnetAZA: "{{ dig "resources" "subnetAZA" "resource" "status" "atProvider" "id" "" $.observed }}"
               subnetAZB: "{{ dig "resources" "subnetAZB" "resource" "status" "atProvider" "id" "" $.observed }}"
               subnetAZC: "{{ dig "resources" "subnetAZC" "resource" "status" "atProvider" "id" "" $.observed }}"

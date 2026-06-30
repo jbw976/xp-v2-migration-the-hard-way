@@ -19,7 +19,6 @@ spec:
         template: |
           {{ $xr := .observed.composite.resource }}
           {{ $region := $xr.spec.region }}
-          {{ $vpcId := dig "resources" "vpc" "resource" "status" "atProvider" "id" "" $.observed }}
           ---
           apiVersion: ec2.aws.upbound.io/v1beta1
           kind: VPC
@@ -43,9 +42,8 @@ spec:
               region: {{ $region }}
               availabilityZone: {{ print $region "a" }}
               cidrBlock: 192.168.0.0/18
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
           ---
           apiVersion: ec2.aws.upbound.io/v1beta1
           kind: Subnet
@@ -57,9 +55,8 @@ spec:
               region: {{ $region }}
               availabilityZone: {{ print $region "b" }}
               cidrBlock: 192.168.64.0/18
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
           ---
           apiVersion: ec2.aws.upbound.io/v1beta1
           kind: Subnet
@@ -71,9 +68,8 @@ spec:
               region: {{ $region }}
               availabilityZone: {{ print $region "c" }}
               cidrBlock: 192.168.128.0/18
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
           ---
           apiVersion: ec2.aws.upbound.io/v1beta1
           kind: SecurityGroup
@@ -85,15 +81,14 @@ spec:
               name: my-sg-{{ $xr.metadata.name }}
               region: {{ $region }}
               description: something something
-              {{- if $vpcId }}
-              vpcId: {{ $vpcId }}
-              {{- end }}
+              vpcIdSelector:
+                matchControllerRef: true
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}
           status:
             networkingInfo:
-              vpcID: "{{ $vpcId }}"
+              vpcID: "{{ dig "resources" "vpc" "resource" "status" "atProvider" "id" "" $.observed }}"
               subnetAZA: "{{ dig "resources" "subnetAZA" "resource" "status" "atProvider" "id" "" $.observed }}"
               subnetAZB: "{{ dig "resources" "subnetAZB" "resource" "status" "atProvider" "id" "" $.observed }}"
               subnetAZC: "{{ dig "resources" "subnetAZC" "resource" "status" "atProvider" "id" "" $.observed }}"
