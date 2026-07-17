@@ -91,6 +91,11 @@ provider, and ProviderConfig that back them. The tables below are the changes yo
 code; the finished versions live in `v2/` to apply and compare against. Each is a v1 -> v2 diff, with
 the reasoning that drives it.
 
+> [!TIP]
+> The community ([`stevendborrelli/xp-migrate`](https://github.com/stevendborrelli/xp-migrate)) tool
+> can automate most of the manifest changes below, but the manual steps are still presented because
+> this is "the hard way".
+
 #### XRD (`v1/xrd.yaml` -> `v2/xrd.yaml`)
 
 | Field | v1 | v2 |
